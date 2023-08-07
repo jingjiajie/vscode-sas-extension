@@ -7,6 +7,9 @@ import {
   InitializeResult,
   SemanticTokensRequest,
   Connection,
+  TextEdit,
+  Position,
+  Range,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
 
@@ -46,6 +49,9 @@ export const init = (conn: Connection): void => {
         completionProvider: {
           triggerCharacters: [" "],
           resolveProvider: true,
+        },
+        documentOnTypeFormattingProvider: {
+          firstTriggerCharacter: "\n",
         },
       },
     };
@@ -95,13 +101,32 @@ export const init = (conn: Connection): void => {
     return languageService.getFoldingBlock(params.line, params.col);
   });
 
+  connection.onDocumentOnTypeFormatting(async (params) => {
+    const [tabSize, useSpace] = await connection.workspace.getConfiguration([
+      {
+        scopeUri: params.textDocument.uri,
+        section: "editor.tabSize",
+      },
+      {
+        scopeUri: params.textDocument.uri,
+        section: "editor.insertSpaces",
+      },
+    ]);
+    const languageService = getLanguageService(params.textDocument.uri);
+    return languageService.completionProvider.getIndentEditOfNextLine(
+      params.position.line - 1,
+      tabSize,
+      useSpace
+    );
+  });
+
   documents.onDidChangeContent((event) => {
     if (servicePool[event.document.uri]) {
       documentPool[event.document.uri] = event.document;
       return;
     }
     servicePool[event.document.uri] = new LanguageServiceProvider(
-      event.document,
+      event.document
     );
   });
 
@@ -122,7 +147,7 @@ function getLanguageService(uri: string) {
       servicePool[uri].setLibService((libId, resolve) =>
         connection
           .sendRequest<LibCompleteItem[]>("sas/getLibList", { libId: libId })
-          .then(resolve),
+          .then(resolve)
       );
     }
     delete documentPool[uri];
